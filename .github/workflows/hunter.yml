@@ -1,0 +1,140 @@
+name: HUNTER
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      initialize_state:
+        description: 'First run only: create private state when the state branch does not yet exist'
+        type: boolean
+        default: false
+        required: false
+
+permissions:
+  contents: read
+
+# A single lock covers restore, execution and state push. Never cancel a state write.
+concurrency:
+  group: hunter-production
+  cancel-in-progress: false
+
+jobs:
+  test:
+    # This handoff is stored privately. Do not consume private Actions allowance.
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Synthetic offline tests
+        run: python -m unittest discover -s tests -v
+
+  run:
+    needs: test
+    # Staged only. Production hosted-Action suitability is unresolved; use a permitted scheduler.
+    # No secret-bearing job for PRs, forks, or arbitrary pushed branches.
+    if: >-
+      github.repository == 'shkrelitechnologies-cloud/hunter-runner' &&
+      github.event.repository.private == false &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: app
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Read private configuration using the scoped deploy key
+        uses: actions/checkout@v4
+        with:
+          repository: shkrelitechnologies-cloud/hunter
+          ref: main
+          path: private
+          ssh-key: ${{ secrets.HUNTER_DEPLOY_KEY }}
+          persist-credentials: true
+          fetch-depth: 1
+      - name: Restore private state or explicitly initialize first state
+        env:
+          INITIALIZE: ${{ inputs.initialize_state == true && github.event_name == 'workflow_dispatch' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          state="$RUNNER_TEMP/hunter-state"
+          set +e
+          git -C private ls-remote --exit-code --heads origin refs/heads/state > "$RUNNER_TEMP/hunter-state-ref" 2> "$RUNNER_TEMP/hunter-git-errors"
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            if [ "$INITIALIZE" = "true" ]; then
+              echo 'State exists; initialization refused.'
+              exit 1
+            fi
+            git -C private fetch --no-tags origin refs/heads/state:refs/remotes/origin/state > "$RUNNER_TEMP/hunter-restore.log" 2>&1
+            git -C private worktree add --detach "$state" refs/remotes/origin/state >> "$RUNNER_TEMP/hunter-restore.log" 2>&1
+            test -f "$state/.hunter-state"
+            test -f "$state/hunter.sqlite"
+            test -f "$state/manifest.json"
+            echo 'HUNTER_INITIALIZE=false' >> "$GITHUB_ENV"
+          elif [ "$status" -eq 2 ] && [ "$INITIALIZE" = "true" ]; then
+            git -C private worktree add --detach "$state" HEAD > "$RUNNER_TEMP/hunter-restore.log" 2>&1
+            git -C "$state" checkout --orphan state >> "$RUNNER_TEMP/hunter-restore.log" 2>&1
+            git -C "$state" rm -rf --ignore-unmatch . >> "$RUNNER_TEMP/hunter-restore.log" 2>&1
+            echo 'HUNTER_INITIALIZE=true' >> "$GITHUB_ENV"
+          else
+            echo 'Private state unavailable. Refusing an empty start. Review private restore state.'
+            exit 1
+          fi
+      - name: Run with private output only
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=()
+          if [ "$HUNTER_INITIALIZE" = "true" ]; then
+            args+=(--initialize)
+          fi
+          if ! python app/hunter.py --config private/config.json --inbox private/inbox --state-dir "$RUNNER_TEMP/hunter-state" "${args[@]}" > "$RUNNER_TEMP/hunter-private-run.log" 2>&1; then
+            echo 'HUNTER failed safely. Previous remote state is unchanged; no private log is printed.'
+            exit 1
+          fi
+          echo 'HUNTER run completed. Results are in the private repository only.'
+      - name: Commit only private state, with conflict-safe push
+        shell: bash
+        run: |
+          set -euo pipefail
+          state="$RUNNER_TEMP/hunter-state"
+          git -C "$state" config user.name 'HUNTER automation'
+          git -C "$state" config user.email 'hunter-automation@users.noreply.github.com'
+          git -C "$state" add -- .hunter-state hunter.sqlite manifest.json reports/latest.md
+          if [ -f "$state/previous.sqlite" ]; then
+            git -C "$state" add -- previous.sqlite
+          fi
+          if git -C "$state" diff --cached --quiet; then
+            echo 'Private state unchanged.'
+            exit 0
+          fi
+          git -C "$state" commit -m 'Update private HUNTER state' > "$RUNNER_TEMP/hunter-commit.log" 2>&1
+          # Never force-push/rebase private DB changes. A conflicting writer fails safely.
+          if ! git -C "$state" push origin HEAD:refs/heads/state > "$RUNNER_TEMP/hunter-push.log" 2>&1; then
+            echo 'Private persistence failed. Do not rerun with initialization; inspect private state first.'
+            exit 1
+          fi
+          echo 'Private state persisted successfully.'
+      - name: Remove private working copies and temporary logs
+        if: always()
+        shell: bash
+        run: |
+          rm -rf -- "$RUNNER_TEMP/hunter-state" "$GITHUB_WORKSPACE/private"
+          rm -f -- "$RUNNER_TEMP"/hunter-private-run.log "$RUNNER_TEMP"/hunter-*.log "$RUNNER_TEMP"/hunter-state-ref "$RUNNER_TEMP"/hunter-git-errors
