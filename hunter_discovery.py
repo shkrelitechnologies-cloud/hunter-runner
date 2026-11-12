@@ -13,6 +13,7 @@ import urllib.parse
 import urllib.request
 import urllib.robotparser
 from html.parser import HTMLParser
+from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 
 USER_AGENT = "HunterDirectoryResearch/1.0"
 EXCLUDED = {"gumroad.com", "github.com", "raw.githubusercontent.com", "youtube.com", "x.com", "twitter.com", "facebook.com", "instagram.com", "reddit.com", "linkedin.com", "t.me", "discord.com"}
@@ -160,32 +161,63 @@ def run_discovery(con,cfg,now,inbox,*,fetch=fetch_text,clock=time.monotonic,paus
         if not isinstance(items,list) or len(items)>20000:raise DiscoveryError("seed_file_invalid")
         imported=enqueue(con,items,min(int(d.get("max_candidates",10000)),10000))
     else:imported=0
-    budget=min(max(int(d.get("runtime_seconds",120)),1),180)
-    maximum=min(max(int(d.get("batch_size",25)),1),60)
+    # Leave time for the runner's fixed eight-minute job timeout, state commit and cleanup.
+    # This is an external-platform checkpoint, not a daily/site-count throttling policy.
+    budget=int(d.get("checkpoint_seconds",360))
     keywords=[str(k)[:80] for k in d.get("keywords",[])][:40]
-    rows=con.execute("SELECT url,domain FROM directory_candidates WHERE state='pending' ORDER BY priority DESC,url LIMIT ?",(maximum,)).fetchall()
+    # No artificial 30/60-site ceiling. A pending domain is claimed once in this run.
+    rows=con.execute("SELECT url,domain FROM directory_candidates WHERE state='pending' ORDER BY priority DESC,url").fetchall()
     scanned=failed=review=blocked=0;started=clock()
-    for url,domain in rows:
-        if clock()-started>=budget:break
-        scanned+=1
+    def inspect(row):
+        url,domain=row
         try:
             robots=fetch("https://"+domain+"/robots.txt")
         except DiscoveryError as e:
             if e.args[0]=="http_404":robots="User-agent: *\nAllow: /"
-            else:
-                con.execute("UPDATE directory_candidates SET state='robots_unverified',checked_at=?,error=? WHERE url=?",(now.isoformat(),e.args[0],url));failed+=1;continue
+            else:return url,"robots_unverified",None,{},e.args[0]
+        if "<html" in robots.lower() or "<body" in robots.lower():
+            return url,"robots_unverified",None,{},"robots_not_plain_rules"
         rules=urllib.robotparser.RobotFileParser();rules.parse(robots.splitlines())
         if not rules.can_fetch(USER_AGENT,url):
-            con.execute("UPDATE directory_candidates SET state='robots_disallowed',checked_at=? WHERE url=?",(now.isoformat(),url));blocked+=1;continue
+            return url,"robots_disallowed",None,{},None
+        delay=rules.crawl_delay(USER_AGENT) or 0
+        if delay:
+            # A long per-site delay is a restriction, not something to bypass with workers.
+            if delay>20:return url,"requires_slow_site_review",None,{},None
+            pause(delay)
         try:
             result=classify(fetch(url),url,keywords)
-            evidence=dict(result["evidence"],policy_links=result["links"])
-            con.execute("UPDATE directory_candidates SET state=?,checked_at=?,score=?,evidence=? WHERE url=?",(result["state"],now.isoformat(),result["score"],json.dumps(evidence),url))
-            review+=int(result["state"]=="review_rules")
-            blocked+=int(result["state"] in ("challenge_stop","automation_prohibited_signal"))
+            return url,result["state"],result["score"],dict(result["evidence"],policy_links=result["links"]),None
         except DiscoveryError as e:
-            con.execute("UPDATE directory_candidates SET state='fetch_failed',checked_at=?,error=? WHERE url=?",(now.isoformat(),e.args[0],url));failed+=1
-        pause(.5)
+            return url,"fetch_failed",None,{},e.args[0]
+    def save(result):
+        nonlocal scanned,failed,review,blocked
+        url,state,score,evidence,error=result
+        scanned+=1;failed+=int(error is not None);review+=int(state=="review_rules")
+        blocked+=int(state in ("robots_disallowed","challenge_stop","automation_prohibited_signal","requires_slow_site_review"))
+        con.execute("UPDATE directory_candidates SET state=?,checked_at=?,score=?,evidence=?,error=? WHERE url=?",
+                    (state,now.isoformat(),score,json.dumps(evidence),error,url))
+    # Workers touch different domains only, never SQLite. No login or write happens here.
+    workers=int(d.get("workers",8))
+    if not 1<=workers<=32 or not 1<=budget<=390:raise DiscoveryError("runner_resource_settings_invalid")
+    pending_rows=iter(rows)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        active={}
+        for _ in range(workers):
+            row=next(pending_rows,None)
+            if row:active[pool.submit(inspect,row)]=row
+        while active:
+            done,_=wait(active,return_when=FIRST_COMPLETED)
+            for future in done:
+                row=active.pop(future)
+                try:result=future.result()
+                except Exception:
+                    # A worker defect must not erase earlier completed read results.
+                    result=(row[0],"fetch_failed",None,{},"worker_failed")
+                save(result)
+                if clock()-started<budget:
+                    row=next(pending_rows,None)
+                    if row:active[pool.submit(inspect,row)]=row
     pending=con.execute("SELECT count(*) FROM directory_candidates WHERE state='pending'").fetchone()[0]
     total=con.execute("SELECT count(*) FROM directory_candidates").fetchone()[0]
     reviewed_connectors=len(cfg.get("directories",{}).get("connectors",[]))

@@ -65,4 +65,18 @@ class DiscoveryTests(unittest.TestCase):
             hd.run_discovery(self.c,{'discovery':{'enabled':True}},self.now,Path(tmp))
         self.c.rollback();self.assertEqual(self.c.execute('select count(*) from witness').fetchone()[0],0)
 
+class ParallelDiscoveryTests(unittest.TestCase):
+    def test_distinct_domains_once_and_checkpoint_preserves_pending(self):
+        c=sqlite3.connect(':memory:');c.executescript(hd.SCHEMA)
+        hd.enqueue(c,[{'url':'https://d'+str(i)+'.example/'} for i in range(20)])
+        ticks=iter([0]+[1000]*30);seen=[]
+        def fetch(url):
+            seen.append(url)
+            return 'User-agent: *\nAllow: /' if url.endswith('robots.txt') else 'Submit your product free.'
+        with tempfile.TemporaryDirectory() as tmp:
+            out=hd.run_discovery(c,{'discovery':{'enabled':True,'workers':2,'checkpoint_seconds':1}},datetime(2026,11,12,tzinfo=timezone.utc),Path(tmp),fetch=fetch,clock=lambda:next(ticks),pause=lambda _:None)
+        self.assertEqual(out['scanned'],2);self.assertEqual(out['pending'],18)
+        self.assertEqual(len(seen),len(set(seen)))
+        self.assertEqual(out['eligible'],0)
+
 if __name__=='__main__':unittest.main()
