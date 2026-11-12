@@ -728,6 +728,8 @@ def statistics(con, cfg: dict) -> dict:
     result["publisher_status"] = publisher[0] if publisher else "not_enabled"
     directory = con.execute("SELECT status FROM execution_logs WHERE operation='directory_summary' ORDER BY id DESC LIMIT 1").fetchone()
     result["directory_last_run"] = directory[0] if directory else "not_enabled"
+    discovery = con.execute("SELECT status FROM execution_logs WHERE operation='discovery_summary' ORDER BY id DESC LIMIT 1").fetchone()
+    result["discovery_last_run"] = discovery[0] if discovery else "not_enabled"
     return result
 
 
@@ -875,6 +877,13 @@ def main(argv=None) -> int:
             elif cfg["affiliate"]["enabled"]:
                 affiliate_cfg = dict(cfg, sources=[])
                 run_sources(con, affiliate_cfg, args.inbox)
+            if cfg.get("discovery", {}).get("enabled"):
+                from hunter_discovery import DiscoveryError, run_discovery
+                try:
+                    discovery_result = run_discovery(con, cfg, utcnow(), args.inbox)
+                    record(con, "discovery_summary", json.dumps(discovery_result, sort_keys=True))
+                except DiscoveryError as error:
+                    record(con, "discovery_summary", error.args[0])
             if cfg.get("directories", {}).get("enabled"):
                 from hunter_directories import DirectoryError, run_directories
                 try:

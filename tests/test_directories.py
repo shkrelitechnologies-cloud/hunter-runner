@@ -73,3 +73,38 @@ class DirectoryTests(unittest.TestCase):
         self.assertEqual(out['pending_verification'],1);self.assertEqual(out['submitted'],0)
         saved=self.c.execute('select payload from configuration_history').fetchone()[0]
         self.assertNotIn('SECRET',saved)
+
+class CurlShipTests(DirectoryTests):
+    def setUp(self):
+        super().setUp();self.cfg['directories']['connectors']=['curlship']
+        self.cfg['directories']['policy_evidence']['curlship']={'status':'verified','url':hd.DOCS['curlship'],'expires_at':'2026-12-01T00:00:00+00:00'}
+    def api(self,url,body=None):
+        self.calls.append((url,body))
+        item={'id':101,'url':self.cfg['products'][0]['url'],'tier':'free','title':'Synthetic planner','description':'A synthetic planner for test only.'}
+        if body is not None:
+            if self.fail:raise hd.DirectoryError('ambiguous_network_or_response')
+            return {'ok':True,'listing':item}
+        if '/listing/101' in url:return {'ok':True,'listing':item}
+        return {'ok':True,'listings':[item] if self.existing else []}
+    def test_expired_policy_rejected(self):
+        self.cfg['directories']['policy_evidence']['curlship']['expires_at']='2025-01-01T00:00:00+00:00'
+        with self.assertRaises(hd.DirectoryError):self.run_dirs()
+    def test_curlship_payload_cannot_pay(self):
+        body=hd.payload('curlship',self.cfg['products'][0],'owner@example.com')
+        self.assertEqual(set(body),{'url','email'})
+    def test_curlship_domain_dedupe_stops_other_product(self):
+        def other(url,body=None):
+            self.assertIsNone(body)
+            return {'ok':True,'listings':[{'id':4,'url':'https://cero.gumroad.com/l/other'}]}
+        out=hd.run_directories(self.c,self.cfg,NOW,api=other)
+        self.assertEqual(out['submitted'],0);self.assertEqual(out['failed'],1)
+    def test_curlship_readback_must_be_free(self):
+        def paid(url,body=None):
+            x=self.api(url,body)
+            if '/listing/101' in url:x['listing']['tier']='gold'
+            return x
+        out=hd.run_directories(self.c,self.cfg,NOW,api=paid)
+        self.assertEqual(out['failed'],1);self.assertEqual(out['submitted'],0)
+    # Launchpad-specific inherited tests run against that connector deliberately.
+    def test_payload_honest_bot_and_no_maker_claim(self):
+        super().test_payload_honest_bot_and_no_maker_claim()

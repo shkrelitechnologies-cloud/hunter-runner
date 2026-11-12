@@ -11,11 +11,13 @@ import urllib.request
 from datetime import datetime, timedelta
 
 ENDPOINTS = {"launchpad": "https://techtools.cz/launchpad-api/tools",
-             "develif": "https://develif.com/api/submit"}
+             "develif": "https://develif.com/api/submit",
+             "curlship": "https://curlship.com/api/submit"}
 DOCS = {"launchpad": "https://techtools.cz/launchpad-api/docs",
-        "develif": "https://develif.com/docs"}
+        "develif": "https://develif.com/docs",
+        "curlship": "https://curlship.com/terms"}
 FIT = {"launchpad": {"cero-1": "productivity", "cero-5": "business"},
-       "develif": {"cero-1": "Productivity"}}
+       "develif": {"cero-1": "Productivity"}, "curlship": {"cero-1": "productivity"}}
 
 
 class DirectoryError(Exception):
@@ -29,9 +31,10 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 def api_json(url, body=None):
     u = urllib.parse.urlsplit(url)
-    if u.scheme != "https" or u.hostname not in ("techtools.cz", "develif.com"):
-        raise DirectoryError("endpoint_not_allowlisted")
-    if not (u.path.startswith("/launchpad-api/tools") or u.path == "/api/submit"):
+    paths = {"techtools.cz": r"/launchpad-api/tools(?:/\d+)?", "develif.com": r"/api/submit",
+             "curlship.com": r"/api/(?:submit|listings|listing/\d+)"}
+    if (u.scheme != "https" or u.hostname not in paths or u.username or u.password
+            or u.port not in (None,443) or not re.fullmatch(paths.get(u.hostname, "!"),u.path)):
         raise DirectoryError("endpoint_not_allowlisted")
     headers = {"Accept": "application/json", "User-Agent": "Hunter product-directory client/1.0"}
     data = None
@@ -85,6 +88,8 @@ def payload(site, product, email):
     name, description = product["name"], product["description"]
     if not (2 <= len(name) <= 100 and 30 <= len(description) <= 2000):
         raise DirectoryError("product_text_invalid")
+    if site == "curlship":
+        return {"url": product["url"], "email": email}
     common = {"name": name, "url": product["url"], "description": description, "category": FIT[site][product["id"]]}
     if site == "launchpad":
         # A truthful bot name, not a fake human and not an invented maker identity.
@@ -130,7 +135,30 @@ def run_directories(con, cfg, now, *, api=api_json):
             log(con, now, "directory_attempt", site, pid, "started")
             try:
                 body = payload(site, p, d["contact_email"])
-                if site == "launchpad":
+                if site == "curlship":
+                    lookup = api("https://curlship.com/api/listings?"+urllib.parse.urlencode({"q":"cero.gumroad.com"}))
+                    if lookup.get("ok") is not True or not isinstance(lookup.get("listings"),list):
+                        raise DirectoryError("lookup_not_verified")
+                    existing = lookup["listings"]
+                    if existing and any(x.get("url", "").rstrip("/") != p["url"].rstrip("/") for x in existing):
+                        raise DirectoryError("domain_already_listed_other_product")
+                    if existing:
+                        response = {"listing":existing[0],"duplicate":True}
+                    else:
+                        response=api(ENDPOINTS[site],body)
+                    item=response.get("listing",{})
+                    if response.get("duplicate") and not item:
+                        raise DirectoryError("duplicate_requires_reconciliation")
+                    if not isinstance(item.get("id"),int) or item.get("url", "").rstrip("/") != p["url"].rstrip("/"):
+                        raise DirectoryError("listing_not_confirmed")
+                    link="https://curlship.com/api/listing/"+str(item["id"])
+                    check=api(link)
+                    verified=check.get("listing",{})
+                    if (check.get("ok") is not True or verified.get("tier")!="free"
+                            or verified.get("url", "").rstrip("/")!=p["url"].rstrip("/")
+                            or not verified.get("title") or not verified.get("description")):
+                        raise DirectoryError("listing_readback_failed")
+                elif site == "launchpad":
                     lookup = api(ENDPOINTS[site] + "?" + urllib.parse.urlencode({"url": p["url"]}))
                     items = lookup.get("data", [])
                     if lookup.get("success") is not True or not isinstance(items, list):
