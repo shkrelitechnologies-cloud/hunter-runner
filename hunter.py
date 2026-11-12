@@ -162,7 +162,12 @@ def validate_config(cfg: dict) -> None:
         raise HunterError("unsupported_config_version")
     safety = cfg.get("safety", {})
     if safety.get("publishing_enabled") is not False or safety.get("human_approval_required") is not True:
-        raise HunterError("publishing_must_remain_disabled")
+        from hunter_publish import PublishError, check_settings
+        try:
+            if not check_settings(cfg, utcnow()):
+                raise HunterError("publishing_must_remain_disabled")
+        except PublishError:
+            raise HunterError("publishing_must_remain_disabled") from None
     if cfg.get("catalogue_scope") != "cero-six-only":
         raise HunterError("catalogue_scope_must_be_cero_six_only")
     products = cfg.get("products", [])
@@ -719,12 +724,14 @@ def statistics(con, cfg: dict) -> dict:
                              ("commissions", "commission_received", "received_commissions")):
         for currency, amount in con.execute(f"SELECT currency,sum(amount_minor) FROM {table} WHERE kind=? GROUP BY currency", (kind,)):
             result[key][currency] = {"amount_minor": amount, "basis": "verified_manual_statement_import"}
+    publisher = con.execute("SELECT status FROM execution_logs WHERE operation='publisher' ORDER BY id DESC LIMIT 1").fetchone()
+    result["publisher_status"] = publisher[0] if publisher else "not_enabled"
     return result
 
 
 def write_report(con, cfg: dict, directory: Path):
     stats = statistics(con, cfg)
-    lines = ["# HUNTER private opportunity report", "", "Drafts only. Nothing published or applied for.",
+    lines = ["# HUNTER private opportunity report", "", "Private research and publication receipts. Affiliate applications are never submitted.",
              "No sales or revenue are inferred from opportunities. Amounts are in currency minor units.", "",
              "## Status", ""]
     for key, value in stats.items():
@@ -866,6 +873,14 @@ def main(argv=None) -> int:
             elif cfg["affiliate"]["enabled"]:
                 affiliate_cfg = dict(cfg, sources=[])
                 run_sources(con, affiliate_cfg, args.inbox)
+            if cfg.get("publishing", {}).get("enabled"):
+                from hunter_publish import PublishError, run_publisher
+                try:
+                    result = run_publisher(con, cfg, utcnow())
+                    record(con, "publisher", result["status"])
+                except PublishError as error:
+                    # Codes are controlled by the connector. Never print API responses or secrets.
+                    record(con, "publisher", error.args[0])
             apply_retention(con, cfg)
             write_report(con, cfg, args.state_dir)
             record(con, "run", "interrupted_safely" if STOP else "completed")
