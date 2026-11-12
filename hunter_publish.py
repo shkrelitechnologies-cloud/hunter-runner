@@ -152,6 +152,17 @@ def run_publisher(con, cfg, now, *, api=request_json, get_token=access_token):
     blog_id = str(p["blog_id"])
     blog_host = urllib.parse.urlsplit(p["blog_url"]).hostname
     base = "https://www.googleapis.com/blogger/v3/blogs/" + blog_id
+    local_done = set()
+    for raw, occurred in con.execute("SELECT payload,occurred_at FROM published_content"):
+        receipt = json.loads(raw)
+        if receipt.get("connector") != "blogger":
+            continue
+        if receipt.get("product_id"):
+            local_done.add("hunter-" + receipt["product_id"])
+        local_done.update(receipt.get("labels", []))
+        at = datetime.fromisoformat(occurred.replace("Z", "+00:00"))
+        if at > now - timedelta(hours=24):
+            return {"status": "daily_cooldown", "published": 0}
     token = get_token()
     blog = api(base, token=token)
     if str(blog.get("id")) != blog_id or urllib.parse.urlsplit(blog.get("url", "")).hostname != blog_host:
@@ -168,7 +179,7 @@ def run_publisher(con, cfg, now, *, api=request_json, get_token=access_token):
         for post in remote.get("items", []):
             post["_query_status"] = status
             posts.append(post)
-    done = {label for post in posts for label in post.get("labels", [])}
+    done = local_done | {label for post in posts for label in post.get("labels", [])}
     for post in posts:
         url = post.get("url", "")
         if urllib.parse.urlsplit(url).hostname != blog_host:

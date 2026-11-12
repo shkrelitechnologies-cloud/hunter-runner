@@ -82,6 +82,18 @@ class PublishingTests(unittest.TestCase):
         self.assertEqual(self.run_pub()["status"], "catalogue_complete_no_repetition")
         self.assertFalse(any("?isDraft=false" in x[0] for x in self.api.calls))
 
+    def test_local_receipt_prevents_repost_when_remote_is_empty(self):
+        self.con.execute("INSERT INTO published_content VALUES(?,?,?)", ("blogger-old", json.dumps({
+            "connector": "blogger", "product_id": "cero-1"}), "2026-11-01T00:00:00+00:00"))
+        self.assertEqual(self.run_pub()["status"], "catalogue_complete_no_repetition")
+        self.assertFalse(any("?isDraft=false" in x[0] for x in self.api.calls))
+
+    def test_local_daily_cooldown_needs_no_network(self):
+        self.con.execute("INSERT INTO published_content VALUES(?,?,?)", ("blogger-old", json.dumps({
+            "connector": "blogger", "product_id": "cero-2"}), NOW.isoformat()))
+        self.assertEqual(self.run_pub()["status"], "daily_cooldown")
+        self.assertEqual(self.api.calls, [])
+
     def test_recent_remote_post_blocks_new_post(self):
         self.api.items = [{"id": "111", "url": "https://example.blogspot.com/a.html",
             "published": NOW.isoformat(), "labels": ["hunter-cero", "hunter-cero-2"]}]

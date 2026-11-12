@@ -726,6 +726,8 @@ def statistics(con, cfg: dict) -> dict:
             result[key][currency] = {"amount_minor": amount, "basis": "verified_manual_statement_import"}
     publisher = con.execute("SELECT status FROM execution_logs WHERE operation='publisher' ORDER BY id DESC LIMIT 1").fetchone()
     result["publisher_status"] = publisher[0] if publisher else "not_enabled"
+    directory = con.execute("SELECT status FROM execution_logs WHERE operation='directory_summary' ORDER BY id DESC LIMIT 1").fetchone()
+    result["directory_last_run"] = directory[0] if directory else "not_enabled"
     return result
 
 
@@ -873,6 +875,13 @@ def main(argv=None) -> int:
             elif cfg["affiliate"]["enabled"]:
                 affiliate_cfg = dict(cfg, sources=[])
                 run_sources(con, affiliate_cfg, args.inbox)
+            if cfg.get("directories", {}).get("enabled"):
+                from hunter_directories import DirectoryError, run_directories
+                try:
+                    directory_result = run_directories(con, cfg, utcnow())
+                    record(con, "directory_summary", json.dumps(directory_result, sort_keys=True))
+                except DirectoryError as error:
+                    record(con, "directory_summary", error.args[0])
             if cfg.get("publishing", {}).get("enabled"):
                 from hunter_publish import PublishError, run_publisher
                 try:
