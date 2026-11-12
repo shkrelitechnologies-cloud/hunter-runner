@@ -1,0 +1,19 @@
+# Runtime/private files must never leak into a public code checkout.
+__pycache__/
+*.py[cod]
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+state/
+backups/
+manifest.json
+.hunter-state
+config.json
+inbox/
+reports/latest.md
+.env
+.env.*
+*.pem
+*.key
+*.log
