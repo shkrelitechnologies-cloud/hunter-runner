@@ -105,7 +105,22 @@ jobs:
           if [ "$HUNTER_INITIALIZE" = "true" ]; then
             args+=(--initialize)
           fi
-          if ! python app/hunter.py --config private/config.json --inbox private/inbox --state-dir "$RUNNER_TEMP/hunter-state" "${args[@]}" > "$RUNNER_TEMP/hunter-private-run.log" 2>&1; then
+          # Keep the saved private config intact. This execution targets only the
+          # three previously successful connectors, with all existing gates intact.
+          python - <<'PYCONFIG'
+          import json, os
+          from pathlib import Path
+          cfg = json.loads(Path("private/config.json").read_text())
+          for stage in ("buyer", "affiliate", "discovery", "publishing"):
+              cfg.setdefault(stage, {})["enabled"] = False
+          allowed = {"launchpad", "develif", "curlship"}
+          configured = cfg.get("directories", {}).get("connectors", [])
+          if any(site not in allowed for site in configured):
+              raise SystemExit("Unexpected connector: refusing to expand scope")
+          target = Path(os.environ["RUNNER_TEMP"]) / "hunter-runtime-config.json"
+          target.write_text(json.dumps(cfg))
+          PYCONFIG
+          if ! python app/hunter.py --config "$RUNNER_TEMP/hunter-runtime-config.json" --inbox private/inbox --state-dir "$RUNNER_TEMP/hunter-state" "${args[@]}" > "$RUNNER_TEMP/hunter-private-run.log" 2>&1; then
             echo 'HUNTER failed safely. Previous remote state is unchanged; no private log is printed.'
             exit 1
           fi
@@ -137,4 +152,5 @@ jobs:
         shell: bash
         run: |
           rm -rf -- "$RUNNER_TEMP/hunter-state" "$GITHUB_WORKSPACE/private"
+          rm -f -- "$RUNNER_TEMP"/hunter-runtime-config.json
           rm -f -- "$RUNNER_TEMP"/hunter-private-run.log "$RUNNER_TEMP"/hunter-*.log "$RUNNER_TEMP"/hunter-state-ref "$RUNNER_TEMP"/hunter-git-errors
