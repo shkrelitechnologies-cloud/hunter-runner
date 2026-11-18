@@ -26,4 +26,12 @@ class FixerPolicyTests(unittest.TestCase):
   now=datetime.now(timezone.utc)
   run={"status":"completed","conclusion":"failure","branch":"main","event":"schedule","created_at":(now-timedelta(hours=25)).isoformat()}
   self.assertFalse(recent_failure(run,now))
+
+ def test_retry_requires_both_documented_and_repository_allowlists(self):
+  from fixer import retry_is_allowed
+  pattern={"action":"retry_safe_job_once","allowed_jobs":["test"]}
+  self.assertTrue(retry_is_allowed(pattern,"test",1,{"test"}))
+  self.assertFalse(retry_is_allowed(pattern,"run",1,{"run"}))
+  self.assertFalse(retry_is_allowed(pattern,"test",2,{"test"}))
+
 if __name__=="__main__": unittest.main()
