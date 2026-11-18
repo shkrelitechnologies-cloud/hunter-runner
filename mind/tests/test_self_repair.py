@@ -1,5 +1,9 @@
+import sys
 import unittest
+from pathlib import Path
 from datetime import datetime, timezone, timedelta
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from self_repair import recent_scheduled_failure
 
 class MindPolicyTests(unittest.TestCase):
