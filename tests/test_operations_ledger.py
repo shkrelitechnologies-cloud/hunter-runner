@@ -47,6 +47,19 @@ class OperationsLedgerTests(unittest.TestCase):
         self.assertEqual(rows[0]["ist_date"], "2026-11-20")
         self.assertEqual(rows[0]["verified"], "true")
 
+    def test_preexisting_listing_is_not_counted_as_new_publication(self):
+        self.con.execute(
+            "INSERT INTO published_content VALUES(?,?,?)",
+            ("directory-launchpad-cero-2",
+             '{"connector":"launchpad","url":"https://launchpad.example/listing/2","product_id":"cero-2","status":"existing"}',
+             "2026-11-19T18:30:00+00:00"),
+        )
+        export_ledgers(self.con, self.root, target=666)
+        with (self.root / "operations" / "DAILY_SUMMARY.csv").open(newline="", encoding="utf-8") as f:
+            summary = {row["ist_date"]: row for row in csv.DictReader(f)}
+        self.assertEqual(summary["2026-11-20"]["verified_publications"], "0")
+        self.assertEqual(summary["2026-11-20"]["verified_existing_listings"], "1")
+
     def test_repeated_export_does_not_duplicate_events(self):
         self.con.execute(
             "INSERT INTO execution_logs VALUES(1,?,?,?,?)",
