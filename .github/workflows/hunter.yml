@@ -111,6 +111,10 @@ jobs:
           import json, os
           from pathlib import Path
           cfg = json.loads(Path("private/config.json").read_text())
+          discovery = cfg.get("discovery", {})
+          if not isinstance(discovery, dict) or discovery.get("enabled") is not True:
+              raise SystemExit("Read-only discovery is not enabled; refusing to report a healthy run")
+          print("Read-only discovery configuration verified enabled.")
           # Preserve the private configuration's enabled stages.
           allowed = {"launchpad", "develif", "curlship"}
           configured = cfg.get("directories", {}).get("connectors", [])
