@@ -1,0 +1,30 @@
+name: MIND self-maintenance
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+permissions:
+  actions: write
+  contents: read
+concurrency:
+  group: mind-self-maintenance
+  cancel-in-progress: false
+jobs:
+  maintain:
+    if: github.repository == 'shkrelitechnologies-cloud/hunter-runner' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Check out this repository only
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Run MIND policy tests
+        run: python -m unittest discover -s mind/tests -v
+      - name: Inspect and recover eligible failures in this repository
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          MIND_ROLE: hunter
+          MIND_SAFE_RETRY_JOBS: "test"
+        run: python mind/self_repair.py
