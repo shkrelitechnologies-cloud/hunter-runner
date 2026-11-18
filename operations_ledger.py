@@ -26,7 +26,7 @@ SUMMARY_FIELDS = [
     "ist_date", "target", "verified_publications", "unique_verified_domains",
     "directory_attempts", "directory_errors", "publisher_events", "verified_existing_listings",
     "discovery_events", "operation_events", "remaining_to_target",
-    "lifetime_verified_publications",
+    "lifetime_verified_publications", "lifetime_unique_verified_domains",
 ]
 
 
@@ -127,6 +127,11 @@ def export_ledgers(con, state_dir: Path, target: int = 666) -> dict:
         if row.get("counted_publication", "").lower() == "true"
         and row.get("publication_url")
     }
+    verified_domains_all = {
+        row.get("site_domain") for row in publications
+        if row.get("counted_publication", "").lower() == "true"
+        and row.get("site_domain")
+    }
     for day in sorted(days):
         pubs = [
             row for row in publications
@@ -157,6 +162,7 @@ def export_ledgers(con, state_dir: Path, target: int = 666) -> dict:
             "discovery_events": discovery_events, "operation_events": len(events),
             "remaining_to_target": max(0, target - count),
             "lifetime_verified_publications": len(verified_all),
+            "lifetime_unique_verified_domains": len(verified_domains_all),
         })
     _atomic_csv(ops / "DAILY_SUMMARY.csv", SUMMARY_FIELDS, summary)
 
