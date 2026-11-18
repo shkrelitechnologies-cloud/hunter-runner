@@ -37,6 +37,17 @@ def load_json(path, default):
 def save_json(path, value):
     path.write_text(json.dumps(value, indent=2, sort_keys=True)+"\n", encoding="utf-8")
 
+def read_working_documents():
+    guide_path = DOCS / "FIXER_GUIDE.md"
+    history_path = INCIDENTS_PATH
+    if not guide_path.is_file():
+        raise RuntimeError("Working Documents guide is missing; refusing automatic repair")
+    guide = guide_path.read_text(encoding="utf-8")
+    if "Required recovery loop" not in guide or "Safety boundaries" not in guide:
+        raise RuntimeError("Working Documents guide is incomplete; refusing automatic repair")
+    history = history_path.read_text(encoding="utf-8") if history_path.exists() else ""
+    return {"guide_chars": len(guide), "history_entries": sum(1 for line in history.splitlines() if line.startswith("- "))}
+
 def safe_log_text(job_id):
     raw = api(f"/repos/{REPO}/actions/jobs/{job_id}/logs", binary=True)
     raw = raw[:MAX_LOG_BYTES]
@@ -157,6 +168,7 @@ def main():
     expected = os.environ.get("FIXER_EXPECTED_REPO","")
     if not REPO or REPO!=expected: raise RuntimeError("Unexpected repository identity; refusing to act")
     DOCS.mkdir(parents=True,exist_ok=True)
+    document_context = read_working_documents()
     knowledge=load_json(KB_PATH,{"version":1,"patterns":[]})
     state=load_json(STATE_PATH,{"version":1,"incidents":{}})
     event_name=os.environ.get("GITHUB_EVENT_NAME","")
@@ -171,7 +183,7 @@ def main():
     save_json(KB_PATH,knowledge)
     save_json(STATE_PATH,state)
     commit_documents()
-    print("Fixer completed. Local diagnosis and repair history saved.")
+    print("Fixer completed. Working Documents and prior incident history were read; local repair history saved.")
 
 if __name__=="__main__":
     try: main()
