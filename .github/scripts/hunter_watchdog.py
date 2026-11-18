@@ -34,7 +34,7 @@ def main():
     now = datetime.now(timezone.utc)
     report = {"checked_at_utc": now.isoformat(), "repository": repo, "workflow": WORKFLOW,
               "status": "unknown", "actions": [], "errors": [],
-              "mode": "read-only discovery and private draft/state maintenance; no publishing"}
+              "mode": "permission-gated reviewed directory submissions plus one original owned-Blogger guide per 24 hours; no comments, DMs, arbitrary-site posting, or account creation"}
     try:
         if not token or "/" not in repo:
             raise RuntimeError("Missing GITHUB_TOKEN or GITHUB_REPOSITORY")
