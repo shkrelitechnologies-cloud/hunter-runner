@@ -29,6 +29,8 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 
+from operations_ledger import export_ledgers
+
 VERSION = "1.0.0"
 SCHEMA_VERSION = 1
 UA = "HUNTER/1.0 (permission-gated public RSS reader; no publishing)"
@@ -902,6 +904,7 @@ def main(argv=None) -> int:
             apply_retention(con, cfg)
             write_report(con, cfg, args.state_dir)
             record(con, "run", "interrupted_safely" if STOP else "completed")
+            export_ledgers(con, args.state_dir, target=666)
         if con.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
             raise HunterError("post_run_integrity_failed")
         con.close()
