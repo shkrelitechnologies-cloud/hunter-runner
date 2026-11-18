@@ -8,6 +8,7 @@ from pathlib import Path
 API = "https://api.github.com"
 WORKFLOW = "hunter.yml"
 STALE_MINUTES = 20
+STALE_ACTIVE_MINUTES = 12
 FAILURE_COOLDOWN_MINUTES = 15
 REPORT = Path("state/hunter-watchdog.json")
 
@@ -47,7 +48,19 @@ def main():
         runs = request("GET", base + "/runs?branch=main&per_page=30", token).get("workflow_runs", [])
         active = [r for r in runs if r.get("status") in {"queued", "in_progress"}]
         report["active_runs"] = len(active)
-        if active:
+        stale_active = []
+        for run in active:
+            age = (now - dt(run.get("created_at"))).total_seconds() / 60 if run.get("created_at") else 0
+            limit = STALE_ACTIVE_MINUTES if run.get("status") == "in_progress" else 45
+            if age > limit:
+                stale_active.append(run)
+        if stale_active:
+            for run in stale_active:
+                request("POST", API + "/repos/" + repo + "/actions/runs/" + str(run["id"]) + "/cancel", token)
+            report["status"] = "stale_run_cancel_requested"
+            report["actions"].append("Requested cancellation of stale worker run(s); next watchdog cycle will dispatch after GitHub releases the concurrency lock")
+            report["stale_run_ids"] = [r["id"] for r in stale_active]
+        elif active:
             report["status"] = "healthy_active"
             report["actions"].append("A worker is already active; avoided duplicate dispatch")
         else:
