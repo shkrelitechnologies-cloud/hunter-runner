@@ -1,0 +1,42 @@
+name: Repository Fixer
+on:
+  workflow_run:
+    workflows: ["HUNTER"]
+    types: [completed]
+  schedule:
+    - cron: "*/15 * * * *"
+  push:
+    branches: [main]
+    paths:
+      - "working-documents/**"
+      - "fixer/**"
+      - ".github/workflows/fixer.yml"
+permissions:
+  actions: write
+  contents: write
+concurrency:
+  group: repository-fixer
+  cancel-in-progress: false
+jobs:
+  fix:
+    if: github.repository == 'shkrelitechnologies-cloud/hunter-runner' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out this repository only
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: true
+      - name: Test Fixer policy and safety rules
+        run: python -m unittest discover -s fixer/tests -v
+      - name: Consult working documents and process eligible failures
+        if: github.event_name != 'push'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
+          FIXER_EXPECTED_REPO: 'shkrelitechnologies-cloud/hunter-runner'
+          FIXER_SAFE_RETRY_JOBS: 'test'
+        run: python fixer/fixer.py
