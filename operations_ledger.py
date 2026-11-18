@@ -16,7 +16,7 @@ TZ = ZoneInfo("Asia/Kolkata")
 PUBLICATION_FIELDS = [
     "publication_id", "occurred_at_utc", "timestamp_ist", "ist_date",
     "connector", "site_domain", "publication_url", "product_id",
-    "status", "verified", "evidence_type",
+    "status", "verified", "counted_publication", "evidence_type",
 ]
 ACTIVITY_FIELDS = [
     "event_id", "occurred_at_utc", "timestamp_ist", "ist_date",
@@ -24,7 +24,7 @@ ACTIVITY_FIELDS = [
 ]
 SUMMARY_FIELDS = [
     "ist_date", "target", "verified_publications", "unique_verified_domains",
-    "directory_attempts", "directory_errors", "publisher_events",
+    "directory_attempts", "directory_errors", "publisher_events", "verified_existing_listings",
     "discovery_events", "operation_events", "remaining_to_target",
     "lifetime_verified_publications",
 ]
@@ -111,6 +111,7 @@ def export_ledgers(con, state_dir: Path, target: int = 666) -> dict:
             "product_id": str(payload.get("product_id", "")),
             "status": str(payload.get("status", "verified_readback")),
             "verified": "true" if host and url.startswith(("https://", "http://")) else "false",
+            "counted_publication": "true" if host and url.startswith(("https://", "http://")) and payload.get("status") != "existing" else "false",
             "evidence_type": "public_readback",
         })
         publication_ids.add(key)
@@ -123,13 +124,19 @@ def export_ledgers(con, state_dir: Path, target: int = 666) -> dict:
     summary = []
     verified_all = {
         row.get("publication_id") for row in publications
-        if row.get("verified", "").lower() == "true" and row.get("publication_url")
+        if row.get("counted_publication", "").lower() == "true"
+        and row.get("publication_url")
     }
     for day in sorted(days):
         pubs = [
             row for row in publications
-            if row.get("ist_date") == day and row.get("verified", "").lower() == "true"
+            if row.get("ist_date") == day and row.get("counted_publication", "").lower() == "true"
             and row.get("publication_url")
+        ]
+        existing = [
+            row for row in publications
+            if row.get("ist_date") == day and row.get("verified", "").lower() == "true"
+            and row.get("status") == "existing"
         ]
         domains = {row.get("site_domain") for row in pubs if row.get("site_domain")}
         events = [row for row in activity if row.get("ist_date") == day]
@@ -146,8 +153,9 @@ def export_ledgers(con, state_dir: Path, target: int = 666) -> dict:
             "ist_date": day, "target": target,
             "verified_publications": count, "unique_verified_domains": len(domains),
             "directory_attempts": directory_attempts, "directory_errors": directory_errors,
-            "publisher_events": publisher_events, "discovery_events": discovery_events,
-            "operation_events": len(events), "remaining_to_target": max(0, target - count),
+            "publisher_events": publisher_events, "verified_existing_listings": len(existing),
+            "discovery_events": discovery_events, "operation_events": len(events),
+            "remaining_to_target": max(0, target - count),
             "lifetime_verified_publications": len(verified_all),
         })
     _atomic_csv(ops / "DAILY_SUMMARY.csv", SUMMARY_FIELDS, summary)
