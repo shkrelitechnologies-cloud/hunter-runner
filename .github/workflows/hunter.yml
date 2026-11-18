@@ -111,8 +111,7 @@ jobs:
           import json, os
           from pathlib import Path
           cfg = json.loads(Path("private/config.json").read_text())
-          for stage in ("buyer", "affiliate", "publishing"):
-              cfg.setdefault(stage, {})["enabled"] = False
+          # Preserve the private configuration's enabled stages.
           allowed = {"launchpad", "develif", "curlship"}
           configured = cfg.get("directories", {}).get("connectors", [])
           if any(site not in allowed for site in configured):
