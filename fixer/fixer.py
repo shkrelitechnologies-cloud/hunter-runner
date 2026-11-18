@@ -63,11 +63,31 @@ def recent_failure(run, now=None):
     created = datetime.fromisoformat(run["created_at"].replace("Z","+00:00"))
     return now-created <= timedelta(hours=MAX_AGE_HOURS)
 
-def eligible_run(run):
+def eligible_run(run, state=None):
     if run.get("name","").lower().startswith("repository fixer"):
         return False
     head_repo = (run.get("head_repository") or {}).get("full_name")
-    return head_repo in (None, REPO) and recent_failure(run)
+    if head_repo not in (None, REPO) or run.get("branch") != "main":
+        return False
+    if run.get("event") not in {"schedule","push","workflow_dispatch"}:
+        return False
+    created = datetime.fromisoformat(run["created_at"].replace("Z","+00:00"))
+    if datetime.now(timezone.utc)-created > timedelta(hours=MAX_AGE_HOURS):
+        return False
+    if run.get("status") != "completed":
+        return False
+    if run.get("conclusion") == "failure":
+        return True
+    if run.get("conclusion") == "success" and int(run.get("run_attempt",1)) >= 2 and state:
+        return any(str(item.get("run_id")) == str(run.get("id")) and item.get("verification") == "retry_requested"
+                   for item in state.get("incidents",{}).values())
+    return False
+
+def retry_is_allowed(pattern, job_name, attempt, safe_jobs):
+    return (pattern.get("action") == "retry_safe_job_once"
+            and job_name in safe_jobs
+            and job_name in pattern.get("allowed_jobs",[])
+            and attempt == 1)
 
 def append_incident(run_id, attempt, job_name, pattern_id, action, verification):
     DOCS.mkdir(parents=True, exist_ok=True)
@@ -77,7 +97,7 @@ def append_incident(run_id, attempt, job_name, pattern_id, action, verification)
     with INCIDENTS_PATH.open("a",encoding="utf-8") as f: f.write(line)
 
 def process_run(run, knowledge, state):
-    if not eligible_run(run): return
+    if not eligible_run(run,state): return
     run_id, attempt = run["id"], int(run.get("run_attempt",1))
     jobs = api(f"/repos/{REPO}/actions/runs/{run_id}/jobs?per_page=100").get("jobs",[])
     failed_jobs = [j for j in jobs if j.get("conclusion")=="failure"]
@@ -103,7 +123,7 @@ def process_run(run, knowledge, state):
         pattern = classify_error(safe_log_text(job["id"]),knowledge)
         action, verification = "manual_review","not_auto_repaired"
         # This is the only automatic repair: one retry of an allowlisted, side-effect-free test job.
-        if pattern.get("action")=="retry_safe_job_once" and name in SAFE_JOBS and attempt==1 and not existing:
+        if retry_is_allowed(pattern,name,attempt,SAFE_JOBS) and not existing:
             api(f"/repos/{REPO}/actions/jobs/{job['id']}/rerun",method="POST")
             action, verification = "rerun_failed_test_job_once","retry_requested"
         state["incidents"][key] = {
@@ -138,7 +158,7 @@ def main():
     elif event_name=="schedule":
         runs=api(f"/repos/{REPO}/actions/runs?branch=main&per_page=50").get("workflow_runs",[])
         for run in runs:
-            if eligible_run(run): process_run(run,knowledge,state)
+            if eligible_run(run,state): process_run(run,knowledge,state)
     # push events only execute the tests; they never inspect or replay business runs.
     save_json(KB_PATH,knowledge)
     save_json(STATE_PATH,state)
