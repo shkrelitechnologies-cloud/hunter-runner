@@ -45,7 +45,10 @@ def main():
             report["actions"].append("Re-enabled HUNTER worker workflow")
         else:
             report["actions"].append("HUNTER worker workflow is enabled")
-        runs = request("GET", base + "/runs?branch=main&per_page=30", token).get("workflow_runs", [])
+        all_runs = request("GET", base + "/runs?branch=main&per_page=30", token).get("workflow_runs", [])
+        # Push-triggered runs only execute the offline test job; the publisher is skipped.
+        # They must never be mistaken for a healthy scheduled production cycle.
+        runs = [r for r in all_runs if r.get("event") in {"schedule", "workflow_dispatch"}]
         active = [r for r in runs if r.get("status") in {"queued", "in_progress"}]
         report["active_runs"] = len(active)
         stale_active = []
