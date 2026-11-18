@@ -1,5 +1,10 @@
 name: MIND self-maintenance
 on:
+  push:
+    branches: [main]
+    paths:
+      - "mind/**"
+      - ".github/workflows/mind-self-maintenance.yml"
   schedule:
     - cron: "*/15 * * * *"
   workflow_dispatch:
