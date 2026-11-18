@@ -37,9 +37,11 @@ class OperationsLedgerTests(unittest.TestCase):
              '{"connector":"launchpad","url":"https://launchpad.example/listing/1","product_id":"cero-1","status":"submitted"}',
              "2026-11-19T18:30:00+00:00"),
         )
-        snapshot = export_ledgers(self.con, self.root, target=666)
-        self.assertEqual(snapshot["verified_publications"], 1)
-        self.assertEqual(snapshot["unique_verified_domains"], 1)
+        export_ledgers(self.con, self.root, target=666)
+        with (self.root / "operations" / "DAILY_SUMMARY.csv").open(newline="", encoding="utf-8") as f:
+            summary = {row["ist_date"]: row for row in csv.DictReader(f)}
+        self.assertEqual(summary["2026-11-20"]["verified_publications"], "1")
+        self.assertEqual(summary["2026-11-20"]["unique_verified_domains"], "1")
         with (self.root / "operations" / "PUBLICATION_LEDGER.csv").open(newline="", encoding="utf-8") as f:
             rows = list(csv.DictReader(f))
         self.assertEqual(rows[0]["ist_date"], "2026-11-20")
