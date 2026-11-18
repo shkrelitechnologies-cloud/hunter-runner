@@ -9,6 +9,7 @@ API = "https://api.github.com"
 WORKFLOW = "hunter.yml"
 STALE_MINUTES = 20
 STALE_ACTIVE_MINUTES = 12
+STALE_QUEUED_MINUTES = 10
 FAILURE_COOLDOWN_MINUTES = 15
 REPORT = Path("state/hunter-watchdog.json")
 
@@ -54,7 +55,7 @@ def main():
         stale_active = []
         for run in active:
             age = (now - dt(run.get("created_at"))).total_seconds() / 60 if run.get("created_at") else 0
-            limit = STALE_ACTIVE_MINUTES if run.get("status") == "in_progress" else 45
+            limit = STALE_ACTIVE_MINUTES if run.get("status") == "in_progress" else STALE_QUEUED_MINUTES
             if age > limit:
                 stale_active.append(run)
         if stale_active:
