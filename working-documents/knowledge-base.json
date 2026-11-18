@@ -1,10 +1,18 @@
 {
-  "version": 1,
-  "repository_role": "hunter",
+  "learning_policy": {
+    "auto_add_recipes": false,
+    "max_retries_per_job_attempt": 1,
+    "require_verified_fix_before_reuse": true,
+    "store_raw_logs": false,
+    "store_secret_values": false
+  },
   "patterns": [
     {
+      "action": "retry_safe_job_once",
+      "allowed_jobs": [
+        "test"
+      ],
       "id": "transient_network",
-      "title": "Transient network or GitHub service interruption",
       "signatures": [
         "connection reset by peer",
         "temporary failure in name resolution",
@@ -15,28 +23,26 @@
         "read timed out",
         "connection timed out"
       ],
-      "action": "retry_safe_job_once",
-      "allowed_jobs": [
-        "test"
-      ],
+      "title": "Transient network or GitHub service interruption",
       "verification": "Retry only a failed explicitly allowlisted test job once; record the next attempt outcome."
     },
     {
+      "action": "manual_review",
+      "allowed_jobs": [],
       "id": "workflow_permission",
-      "title": "Workflow or GitHub permission denied",
       "signatures": [
         "refusing to allow.*workflow",
         "resource not accessible by integration",
         "403.*permission",
         "workflow.*permission"
       ],
-      "action": "manual_review",
-      "allowed_jobs": [],
+      "title": "Workflow or GitHub permission denied",
       "verification": "Do not change permissions or workflow files automatically. Record the failing step and missing permission."
     },
     {
+      "action": "manual_review",
+      "allowed_jobs": [],
       "id": "private_state_integrity",
-      "title": "Private state restore, integrity or persistence failure",
       "signatures": [
         "private state unavailable",
         "state branch",
@@ -46,24 +52,18 @@
         "push.*rejected",
         "non-fast-forward"
       ],
-      "action": "manual_review",
-      "allowed_jobs": [],
+      "title": "Private state restore, integrity or persistence failure",
       "verification": "Never initialize, overwrite, force-push or replay production work. Preserve private state."
     },
     {
-      "id": "unknown",
-      "title": "Unclassified failure",
-      "signatures": [],
       "action": "manual_review",
       "allowed_jobs": [],
+      "id": "unknown",
+      "signatures": [],
+      "title": "Unclassified failure",
       "verification": "Record the diagnosis. Add a recipe only after a fix is tested and verified."
     }
   ],
-  "learning_policy": {
-    "auto_add_recipes": false,
-    "require_verified_fix_before_reuse": true,
-    "max_retries_per_job_attempt": 1,
-    "store_raw_logs": false,
-    "store_secret_values": false
-  }
+  "repository_role": "hunter",
+  "version": 1
 }
