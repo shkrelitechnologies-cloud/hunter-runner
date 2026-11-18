@@ -12,6 +12,19 @@
       "run_id": 44376196193,
       "updated_at": "2026-11-18T19:03:02+00:00",
       "verification": "not_auto_repaired"
+    },
+    "44376232000:test": {
+      "action": "manual_review",
+      "job": "test",
+      "job_id": 135056149344,
+      "matched_signature": "",
+      "pattern": "unknown",
+      "pattern_title": "Unclassified failure",
+      "recipe": "Record the diagnosis. Add a recipe only after a fix is tested and verified.",
+      "run_attempt": 1,
+      "run_id": 44376232000,
+      "updated_at": "2026-11-18T19:03:11+00:00",
+      "verification": "not_auto_repaired"
     }
   },
   "version": 1
