@@ -28,7 +28,7 @@ class OperationsLedgerTests(unittest.TestCase):
 
     def test_exports_verified_publication_and_ist_day(self):
         self.con.execute(
-            "INSERT INTO execution_logs VALUES(1,?,?,?,?,?)".replace("?,?,?,?,?", "?,?,?,?"),
+            "INSERT INTO execution_logs VALUES(1,?,?,?,?)",
             ("2026-11-19T18:30:00+00:00", "directory_attempt", "launchpad:cero-1", "verified"),
         )
         self.con.execute(
