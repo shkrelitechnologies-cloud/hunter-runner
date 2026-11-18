@@ -56,7 +56,7 @@ def classify_error(log_text, knowledge):
 
 def recent_failure(run, now=None):
     now = now or datetime.now(timezone.utc)
-    if run.get("status")!="completed" or run.get("conclusion")!="failure" or run.get("branch")!="main":
+    if run.get("status")!="completed" or run.get("conclusion")!="failure" or run.get("head_branch",run.get("branch"))!="main":
         return False
     if run.get("event") not in {"schedule","push","workflow_dispatch"}:
         return False
@@ -67,7 +67,7 @@ def eligible_run(run, state=None):
     if run.get("name","").lower().startswith("repository fixer"):
         return False
     head_repo = (run.get("head_repository") or {}).get("full_name")
-    if head_repo not in (None, REPO) or run.get("branch") != "main":
+    if head_repo not in (None, REPO) or run.get("head_branch",run.get("branch")) != "main":
         return False
     if run.get("event") not in {"schedule","push","workflow_dispatch"}:
         return False
