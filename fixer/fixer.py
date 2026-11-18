@@ -135,7 +135,10 @@ def process_run(run, knowledge, state):
         key = f"{run_id}:{name}"
         existing = state["incidents"].get(key)
         if existing and int(existing.get("run_attempt",1))>=attempt: continue
-        log_text = safe_log_text(job["id"])
+        try:
+            log_text = safe_log_text(job["id"])
+        except Exception as log_error:
+            log_text = "FIXER_LOG_RETRIEVAL_FAILED: " + type(log_error).__name__
         pattern = classify_error(log_text,knowledge)
         signature = next((s for s in pattern.get("signatures",[]) if re.search(s,log_text,re.IGNORECASE)), "")
         recipe = pattern.get("verification","No documented repair recipe; manual diagnosis required.")
