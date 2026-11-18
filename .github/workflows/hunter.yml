@@ -135,7 +135,7 @@ jobs:
           state="$RUNNER_TEMP/hunter-state"
           git -C "$state" config user.name 'HUNTER automation'
           git -C "$state" config user.email 'hunter-automation@users.noreply.github.com'
-          git -C "$state" add -- .hunter-state hunter.sqlite manifest.json reports/latest.md
+          git -C "$state" add -- .hunter-state hunter.sqlite manifest.json reports/latest.md operations/
           if [ -f "$state/previous.sqlite" ]; then
             git -C "$state" add -- previous.sqlite
           fi
