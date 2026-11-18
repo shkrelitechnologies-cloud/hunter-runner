@@ -89,11 +89,14 @@ def retry_is_allowed(pattern, job_name, attempt, safe_jobs):
             and job_name in pattern.get("allowed_jobs",[])
             and attempt == 1)
 
-def append_incident(run_id, attempt, job_name, pattern_id, action, verification):
+def append_incident(run_id, attempt, job_name, pattern_id, pattern_title, matched_signature, recipe, action, verification):
     DOCS.mkdir(parents=True, exist_ok=True)
     if not INCIDENTS_PATH.exists():
         INCIDENTS_PATH.write_text("# Fixer incident history\n\nNo incidents recorded yet.\n",encoding="utf-8")
-    line = f"- {now_iso()} | run {run_id} attempt {attempt} | job {job_name} | pattern {pattern_id} | action {action} | verification {verification}\n"
+    url = f"https://github.com/{REPO}/actions/runs/{run_id}"
+    line = (f"- {now_iso()} | [run {run_id}]({url}) attempt {attempt} | job {job_name} | "
+            f"diagnosis: {pattern_title} ({pattern_id}) | matched signature: {matched_signature or 'not available'} | "
+            f"documented recipe: {recipe} | action: {action} | verification: {verification}\n")
     with INCIDENTS_PATH.open("a",encoding="utf-8") as f: f.write(line)
 
 def process_run(run, knowledge, state):
@@ -113,14 +116,18 @@ def process_run(run, knowledge, state):
                     field = "verified_failures" if outcome=="retry_failed" else "verified_successes"
                     p[field] = int(p.get(field,0))+1
                     p["last_seen"] = now_iso()
-            append_incident(run_id,attempt,prior.get("job"),prior.get("pattern"),"documented retry",outcome)
+                    p["last_verified_fix"] = {"action": prior.get("action"), "job": prior.get("job"), "run_id": run_id, "outcome": outcome, "verified_at": now_iso()}
+            append_incident(run_id,attempt,prior.get("job"),prior.get("pattern"),prior.get("pattern_title",""),prior.get("matched_signature",""),prior.get("recipe",""),"documented retry",outcome)
 
     for job in failed_jobs:
         name = job.get("name","unknown")
         key = f"{run_id}:{name}"
         existing = state["incidents"].get(key)
         if existing and int(existing.get("run_attempt",1))>=attempt: continue
-        pattern = classify_error(safe_log_text(job["id"]),knowledge)
+        log_text = safe_log_text(job["id"])
+        pattern = classify_error(log_text,knowledge)
+        signature = next((s for s in pattern.get("signatures",[]) if re.search(s,log_text,re.IGNORECASE)), "")
+        recipe = pattern.get("verification","No documented repair recipe; manual diagnosis required.")
         action, verification = "manual_review","not_auto_repaired"
         # This is the only automatic repair: one retry of an allowlisted, side-effect-free test job.
         if retry_is_allowed(pattern,name,attempt,SAFE_JOBS) and not existing:
@@ -128,14 +135,15 @@ def process_run(run, knowledge, state):
             action, verification = "rerun_failed_test_job_once","retry_requested"
         state["incidents"][key] = {
             "run_id":run_id,"run_attempt":attempt,"job_id":job.get("id"),"job":name,
-            "pattern":pattern.get("id","unknown"),"action":action,
+            "pattern":pattern.get("id","unknown"),"pattern_title":pattern.get("title","Unclassified failure"),
+            "matched_signature":signature,"recipe":recipe,"action":action,
             "verification":verification,"updated_at":now_iso()
         }
         for p in knowledge["patterns"]:
             if p.get("id")==pattern.get("id"):
                 p["last_seen"]=now_iso()
                 p["observations"]=int(p.get("observations",0))+1
-        append_incident(run_id,attempt,name,pattern.get("id","unknown"),action,verification)
+        append_incident(run_id,attempt,name,pattern.get("id","unknown"),pattern.get("title","Unclassified failure"),signature,recipe,action,verification)
 
 def commit_documents():
     subprocess.run(["git","config","user.name","Repository Fixer"],cwd=ROOT,check=True)
