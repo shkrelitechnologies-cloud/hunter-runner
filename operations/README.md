@@ -20,3 +20,6 @@ The private `hunter` repository's `state` branch contains the authoritative `ope
 
 ## Required health report
 Every check records timestamp, production workflow state, active/stale run IDs, recovery action, errors/blockers, and next retry condition. Daily reporting shows verified publications / 666, target gap, and separate attempted, pending, rejected, failed, and blocked counts.
+
+## Operator shorthand: `666`
+When the operator requests `666`, include HUNTER in the four-project audit (COCO, HUNTER, MAYA, SHIV). Read the private `hunter` repository's `state` branch, reconcile `operations/DAILY_SUMMARY.csv` against `operations/PUBLICATION_LEDGER.csv`, report verified unique publications / 666, remaining target, separate attempts/pending/failed/blocked/skipped/duplicates, and calculate required throughput to midnight IST. A successful HUNTER Actions run is not proof of a new publication. If private state cannot be read, report the count as **unverifiable**, never as zero. Existing verified listings and today's new publications must be shown separately.
