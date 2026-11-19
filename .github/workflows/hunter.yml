@@ -105,7 +105,7 @@ jobs:
             exit 1
           fi
       - name: Discover new global product-directory candidates
-        run: python app/hunter_browser_discovery.py --out private/inbox/directory-seeds.json --max-pages 45
+        run: python app/hunter_browser_discovery.py --out private/inbox/directory-seeds.json --max-pages 24
       - name: Run with private output only
         env:
           HUNTER_BLOGGER_OAUTH: ${{ secrets.HUNTER_BLOGGER_OAUTH }}
