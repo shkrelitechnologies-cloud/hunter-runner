@@ -6,6 +6,7 @@ on:
     paths:
       - hunter.py
       - hunter_discovery.py
+      - hunter_browser_discovery.py
       - hunter_directories.py
       - hunter_publish.py
       - .github/workflows/hunter.yml
@@ -53,7 +54,7 @@ jobs:
       github.event.repository.private == false &&
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
@@ -103,6 +104,8 @@ jobs:
             echo 'Private state unavailable. Refusing an empty start. Review private restore state.'
             exit 1
           fi
+      - name: Discover new global product-directory candidates
+        run: python app/hunter_browser_discovery.py --out private/inbox/directory-seeds.json --max-pages 45
       - name: Run with private output only
         env:
           HUNTER_BLOGGER_OAUTH: ${{ secrets.HUNTER_BLOGGER_OAUTH }}
