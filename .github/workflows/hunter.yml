@@ -11,7 +11,7 @@ on:
       - .github/workflows/hunter.yml
   pull_request:
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '*/5 * * * *' # Keep the discovery worker on a five-minute cadence
   workflow_dispatch:
     inputs:
       initialize_state:
