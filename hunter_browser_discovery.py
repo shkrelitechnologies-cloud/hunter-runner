@@ -62,7 +62,7 @@ def main():
       errors.append(engine+":challenge_or_rate_limit");continue
      items=page.locator("a[href]").evaluate_all("els=>els.map(a=>({url:a.href,title:(a.innerText||a.getAttribute('aria-label')||'').trim()}))")
      for item in items:
-      url=clean(item.get("url",""));title=re.sub(r"\\s+"," ",item.get("title","")).strip()
+      url=clean(item.get("url",""));title=re.sub(r"\s+"," ",item.get("title","")).strip()
       if not url or url in seen or len(title)<3:continue
       seen.add(url)
       host=urlparse(url).hostname or ""
