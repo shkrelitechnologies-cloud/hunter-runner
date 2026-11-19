@@ -1,4 +1,4 @@
-name: HUNTER
+name: HUNTER # Live execution requested
 
 on:
   push:
