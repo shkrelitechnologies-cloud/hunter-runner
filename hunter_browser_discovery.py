@@ -46,7 +46,7 @@ def clean(raw):
  except Exception:return ""
 
 def main():
- ap=argparse.ArgumentParser();ap.add_argument("--out",type=Path,required=True);ap.add_argument("--max-pages",type=int,default=45);args=ap.parse_args()
+ ap=argparse.ArgumentParser();ap.add_argument("--out",type=Path,required=True);ap.add_argument("--max-pages",type=int,default=24);args=ap.parse_args()
  try:from playwright.sync_api import sync_playwright
  except Exception as e:raise SystemExit("Playwright unavailable: "+type(e).__name__)
  leads={};errors=[];pages=0;seen=set()
