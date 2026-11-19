@@ -1,0 +1,44 @@
+name: HUNTER watchdog
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: hunter-watchdog
+  cancel-in-progress: false
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate watchdog
+        run: python -m py_compile .github/scripts/watchdog.py
+      - name: Check and recover scheduled workflow
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          TARGET_BRANCH: main
+          TARGET_WORKFLOW: hunter.yml
+          STALE_ACTIVE_MINUTES: "20"
+          STALE_QUEUED_MINUTES: "20"
+          STALE_SUCCESS_MINUTES: "30"
+        run: python .github/scripts/watchdog.py
+      - name: Preserve watchdog report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hunter-watchdog-${{ github.run_number }}
+          path: state/watchdog.json
+          if-no-files-found: warn
+          retention-days: 30
