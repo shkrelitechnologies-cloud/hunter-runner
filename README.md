@@ -2,7 +2,7 @@
 
 Public code and offline tests. Configuration, catalogue facts, account identifiers, inbox, drafts, reports and state remain private.
 
-Research runs every six hours. It collects bounded public-source research and saves state privately. HN is research-only, with no generated replies. Affiliate applications, payments, unsolicited messages and account registration are not supported.
+Research is configured with a six-hour buyer interval and private state persistence. The GitHub runner workflow is scheduled to wake every five minutes (bounded eight-minute job, single concurrency lock); source cooldowns prevent every wake-up from repeating research. GitHub may delay or skip scheduled runs. HN is research-only, with no generated replies. Affiliate applications, payments, unsolicited messages and account registration are not supported.
 
 ## Owned-blog publishing connector
 
