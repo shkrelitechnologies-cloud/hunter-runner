@@ -24,6 +24,36 @@ CREATE TABLE IF NOT EXISTS directory_candidates(
  checked_at TEXT, score INTEGER, evidence TEXT, error TEXT);
 CREATE INDEX IF NOT EXISTS directory_queue ON directory_candidates(state,priority DESC,url);
 """
+TRANSIENT_FETCH_ERRORS = {"network_or_decode_error", "http_500", "http_502", "http_503", "http_504"}
+SUBMIT_TERMS = (
+    "submit (?:your |a )?(?:tool|product|website|startup|template|app|software|saas)",
+    "add your (?:site|product|tool|startup|app)",
+    "list your (?:site|product|tool|startup|app)",
+    "suggest (?:a )?(?:tool|product|startup)",
+    "product einreichen|tool einreichen|startup einreichen",
+    "soumettre (?:un )?(?:outil|produit|startup)",
+    "enviar (?:tu )?(?:herramienta|producto|startup)",
+    "invia (?:il tuo )?(?:prodotto|tool|strumento)",
+    "adicionar (?:seu )?(?:produto|ferramenta)",
+    "добавить (?:продукт|инструмент|стартап)",
+    "提交产品|提交工具|收录产品|提交应用",
+    "製品を投稿|ツールを投稿|プロダクトを投稿",
+    "제품 제출|도구 제출|스타트업 등록",
+    "ürün gönder|ürün ekle|aracınızı gönderin",
+    "kirim produk|daftarkan produk",
+    "إرسال منتج|أضف منتجك",
+    "उत्पाद जोड़ें|टूल सबमिट",
+)
+AUTOMATION_TERMS = (
+    "(?:bots?|agents?|automated|programmatic).{0,80}(?:welcome|allowed|submit|submission)",
+    "(?:submit|submission).{0,80}(?:bots?|agents?|automated|programmatic)",
+    "api submission|api submissions|submission api",
+)
+PROHIBITION_TERMS = (
+    "no automated submissions|automated submissions (?:are )?(?:not allowed|prohibited)",
+    "bots? (?:are )?not allowed|no bots?|automated (?:tools|access) (?:are )?not allowed",
+    "do not use bots?|manual submission only",
+)
 
 class DiscoveryError(Exception):
     pass
@@ -57,15 +87,16 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def fetch_text(url):
+def fetch_text(url, attempts=3, pause=time.sleep):
     """Public HTTPS GET, bounded bytes, bounded redirects, never store-domain navigation."""
     current = canonical(url)
-    for _ in range(4):
+    redirects = 0
+    for attempt in range(max(1, attempts)):
         u = urllib.parse.urlsplit(current)
         resolve_public(u.hostname)
         req = urllib.request.Request(current,headers={"User-Agent":USER_AGENT,"Accept":"text/html,text/plain,application/json"})
         try:
-            with urllib.request.build_opener(NoRedirect).open(req,timeout=5) as r:
+            with urllib.request.build_opener(NoRedirect).open(req,timeout=8) as r:
                 raw = r.read(500001)
                 if len(raw)>500000:
                     raise DiscoveryError("page_too_large")
@@ -75,6 +106,9 @@ def fetch_text(url):
                 return raw.decode("utf-8",errors="replace")
         except urllib.error.HTTPError as e:
             if e.code in (301,302,303,307,308):
+                redirects += 1
+                if redirects > 4:
+                    raise DiscoveryError("redirect_limit") from None
                 target = canonical(urllib.parse.urljoin(current,e.headers.get("Location","")))
                 old,new = u.hostname,urllib.parse.urlsplit(target).hostname
                 if old.removeprefix("www.") != new.removeprefix("www."):
@@ -85,8 +119,14 @@ def fetch_text(url):
                 raise DiscoveryError("access_or_rate_limit_stop_"+str(e.code)) from None
             if e.code==404:
                 raise DiscoveryError("http_404") from None
+            if 500 <= e.code <= 599 and attempt + 1 < attempts:
+                pause(min(2 ** (attempt + 1), 4))
+                continue
             raise DiscoveryError("http_"+str(e.code)) from None
         except (OSError,ValueError):
+            if attempt + 1 < attempts:
+                pause(min(2 ** (attempt + 1), 4))
+                continue
             raise DiscoveryError("network_or_decode_error") from None
     raise DiscoveryError("redirect_limit")
 
@@ -107,12 +147,12 @@ class Page(HTMLParser):
 
 def classify(html,url,keywords):
     p=Page();p.feed(html);text=" ".join(" ".join(p.parts).split());lower=text.lower()
-    if re.search(r"verify you are human|access denied|just a moment|checking your browser|captcha",lower):
+    if re.search(r"verify you are human|access denied|just a moment|checking your browser|captcha|cloudflare",lower):
         return {"state":"challenge_stop","score":0,"evidence":{},"links":[]}
     matched=[k for k in keywords if k.lower() in lower][:20]
-    submit=bool(re.search(r"submit (?:your |a )?(?:tool|product|website|startup|template)|add your (?:site|product|tool)|list your (?:site|product)",lower))
-    automation=bool(re.search(r"(?:bots?|agents?|automated|programmatic).{0,80}(?:welcome|submit|submission)|(?:submit|submission).{0,80}(?:bots?|agents?|automated|programmatic)",lower))
-    prohibited=bool(re.search(r"no automated submissions|automated submissions (?:are )?(?:not allowed|prohibited)|bots (?:are )?not allowed",lower))
+    submit=bool(re.search("|".join(SUBMIT_TERMS),lower))
+    automation=bool(re.search("|".join(AUTOMATION_TERMS),lower))
+    prohibited=bool(re.search("|".join(PROHIBITION_TERMS),lower))
     # These are triage signals only. Never set permission_verified from page text.
     score=len(matched)*2+int(submit)*3+int(automation)*4-int(prohibited)*20
     state="review_rules" if submit and not prohibited else "research_only"
@@ -126,10 +166,23 @@ def classify(html,url,keywords):
         try:
             target=canonical(urllib.parse.urljoin(url,href));u=urllib.parse.urlsplit(target)
             if u.hostname!=base.hostname:continue
-            if re.search(r"/(?:submit|add|terms|polic|rule|docs|developers|api|faq)(?:[/.\-]|$)",u.path,re.I):
+            if re.search(r"/(?:submit|add|terms|polic|rule|docs|developers|api|faq|contribute|suggest|contact)(?:[/.\-]|$)",u.path,re.I):
                 links.append(target)
         except DiscoveryError:continue
     return {"state":state,"score":score,"evidence":evidence,"links":list(dict.fromkeys(links))[:6]}
+
+
+def _seed_priority(item, url):
+    text=" ".join(str(item.get(k,"")) for k in ("name","source","url")).lower()+" "+url.lower()
+    free=str(item.get("catalog_free","Unknown"))[:12]
+    priority=10 if free=="Yes" else (5 if free.startswith("Yes") else 0)
+    if any(k in text for k in ("submit","add-tool","add tool","list your","suggest","einreichen","soumettre","enviar","invia","adicionar","提交","投稿","제출","ekle","kirim","إرسال")):
+        priority += 4
+    if any(k in text for k in ("directory","catalog","catalogue","listing","marketplace","resources")):
+        priority += 2
+    if any(k in text for k in ("api","developer")):
+        priority += 1
+    return min(priority, 20)
 
 
 def enqueue(con,items,limit=10000):
@@ -137,14 +190,22 @@ def enqueue(con,items,limit=10000):
     for item in items:
         if con.execute("SELECT count(*) FROM directory_candidates").fetchone()[0]>=limit:break
         try:url=canonical(item["url"])
-        except (DiscoveryError,KeyError):continue
+        except (DiscoveryError,KeyError,TypeError):continue
         domain=urllib.parse.urlsplit(url).hostname
-        # One initial candidate per domain. Additional same-site policy links are evidence only.
-        if con.execute("SELECT 1 FROM directory_candidates WHERE domain=?",(domain,)).fetchone():continue
         free=str(item.get("catalog_free","Unknown"))[:12]
-        priority=10 if free=="Yes" else (5 if free.startswith("Yes") else 0)
+        name=str(item.get("name",domain))[:160]
+        source=str(item.get("source","manual"))[:300]
+        priority=_seed_priority(item,url)
+        # One initial candidate per domain. Additional same-site policy links are evidence only.
+        existing=con.execute("SELECT url,state,priority FROM directory_candidates WHERE domain=?",(domain,)).fetchone()
+        if existing:
+            if existing[1]=="pending" and priority>int(existing[2] or 0):
+                con.execute("UPDATE directory_candidates SET priority=?,name=?,source=?,catalog_free=? WHERE url=?",
+                            (priority,name,source,free,existing[0]))
+            continue
+        before=con.execute("SELECT changes()").fetchone()[0]
         con.execute("INSERT OR IGNORE INTO directory_candidates(url,domain,name,source,catalog_free,priority) VALUES(?,?,?,?,?,?)",
-                    (url,domain,str(item.get("name",domain))[:160],str(item.get("source","manual"))[:300],free,priority))
+                    (url,domain,name,source,free,priority))
         inserted+=1
     return inserted
 

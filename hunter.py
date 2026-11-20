@@ -323,8 +323,11 @@ def backup_database(con: sqlite3.Connection, directory: Path):
     target = directory / "previous.sqlite"
     temporary = directory / "previous.tmp.sqlite"
     temporary.unlink(missing_ok=True)
-    with sqlite3.connect(temporary) as destination:
+    destination = sqlite3.connect(temporary)
+    try:
         con.backup(destination)
+    finally:
+        destination.close()
     os.replace(temporary, target)
 
 

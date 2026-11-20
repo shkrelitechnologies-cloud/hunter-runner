@@ -21,10 +21,14 @@ QUERIES=[
  "notion template directory submit product listing guidelines",
  "startup software directory submit product free official rules",
  "submit tool directory product listing API allowed",
+ "submit SaaS app directory free listing guidelines",
+ "AI tool directory submit product free rules",
+ "indie product directory submit your startup listing",
  "directorio de productos enviar producto gratis reglas",
  "annuaire produit soumettre un outil gratuit règles",
  "Produktverzeichnis Produkt einreichen kostenlos Richtlinien",
  "diretório de produtos enviar ferramenta gratuita regras",
+ "catalogo prodotti inviare strumento gratuito regole",
  "каталог продуктов добавить продукт правила",
  "ürün dizini ürün gönder ücretsiz kurallar",
  "دليل المنتجات إرسال منتج قواعد النشر",
@@ -33,9 +37,13 @@ QUERIES=[
  "製品ディレクトリ 製品登録 無料 利用規約",
  "제품 디렉토리 제품 제출 무료 운영 정책",
  "产品目录 提交产品 免费 收录规则",
+ "danh bạ sản phẩm gửi công cụ miễn phí quy tắc",
+ "katalog produktów dodaj produkt darmowe zasady",
+ "แคตตาล็อกผลิตภัณฑ์ ส่งผลิตภัณฑ์ฟรี กฎ",
+ "каталог інструментів додати продукт безкоштовно правила",
 ]
-BLOCK=("captcha","verify you are human","unusual traffic","access denied","security check","robot check","sign in to continue")
-EXCLUDE=("facebook.com","instagram.com","x.com","twitter.com","reddit.com","linkedin.com","youtube.com","t.me","discord.com")
+BLOCK=("captcha","verify you are human","unusual traffic","access denied","security check","robot check","sign in to continue","forbidden")
+EXCLUDE=("facebook.com","instagram.com","x.com","twitter.com","reddit.com","linkedin.com","youtube.com","t.me","discord.com","pinterest.com","medium.com")
 
 def clean(raw):
  try:
@@ -50,26 +58,30 @@ def main():
  try:from playwright.sync_api import sync_playwright
  except Exception as e:raise SystemExit("Playwright unavailable: "+type(e).__name__)
  leads={};errors=[];pages=0;seen=set()
+ page_limit=max(1,min(args.max_pages,60))
  with sync_playwright() as p:
   browser=p.chromium.launch(headless=True);page=browser.new_page(locale="en-US")
+  page.set_default_timeout(12000)
   for query in QUERIES:
    for engine,template in ENGINES.items():
-    if pages>=max(1,min(args.max_pages,60)):break
+    if pages>=page_limit:break
     try:
      response=page.goto(template.format(q=quote_plus(query)),wait_until="domcontentloaded",timeout=12000);pages+=1
-     body=page.locator("body").inner_text(timeout=2500).lower()
+     try: body=page.locator("body").inner_text(timeout=2500).lower()
+     except Exception: body=""
      if (response and response.status in (401,403,429)) or any(x in body for x in BLOCK):
       errors.append(engine+":challenge_or_rate_limit");continue
-     items=page.locator("a[href]").evaluate_all("els=>els.map(a=>({url:a.href,title:(a.innerText||a.getAttribute('aria-label')||'').trim()}))")
-     for item in items:
-      url=clean(item.get("url",""));title=re.sub(r"\s+"," ",item.get("title","")).strip()
+     items=page.locator("a[href]").evaluate_all("els=>els.slice(0,300).map(a=>({url:a.href,title:(a.innerText||a.getAttribute('aria-label')||'').trim()}))")
+     for item in items[:300]:
+      if not isinstance(item,dict):continue
+      url=clean(item.get("url",""));title=re.sub(r"\s+"," ",str(item.get("title",""))).strip()
       if not url or url in seen or len(title)<3:continue
       seen.add(url)
-      host=urlparse(url).hostname or ""
-      if not any(w in (title+" "+url).lower() for w in ("directory","submit","product","tool","listing","catalog","catalogue","verzeichnis","annuaire","directorio","目录","製品","제품","каталог","dizin","دليل","निर्देशिका")):continue
+      hay=(title+" "+url).lower()
+      if not any(w in hay for w in ("directory","submit","product","tool","startup","saas","app","software","listing","catalog","catalogue","resource","verzeichnis","annuaire","directorio","catalogo","目录","製品","제품","каталог","dizin","دليل","निर्देशिका","katalog","danh bạ","แคตตาล็อก")):continue
       leads[url]={"url":url,"name":title[:160],"source":"playwright:"+engine+":"+query[:180],"catalog_free":"Unknown"}
     except Exception as e:errors.append(engine+":"+type(e).__name__)
-   if pages>=max(1,min(args.max_pages,60)):break
+   if pages>=page_limit:break
   browser.close()
  args.out.parent.mkdir(parents=True,exist_ok=True)
  args.out.write_text(json.dumps(list(leads.values())[:2000],indent=2,ensure_ascii=False)+"\n",encoding="utf-8")

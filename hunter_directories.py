@@ -29,7 +29,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def api_json(url, body=None):
+def api_json(url, body=None, attempts=3, pause=None):
     u = urllib.parse.urlsplit(url)
     paths = {"techtools.cz": r"/launchpad-api/tools(?:/\d+)?", "develif.com": r"/api/submit",
              "curlship.com": r"/api/(?:submit|listings|listing/\d+)"}
@@ -41,21 +41,33 @@ def api_json(url, body=None):
     if body is not None:
         data = json.dumps(body).encode()
         headers["Content-Type"] = "application/json"
-    try:
-        with urllib.request.build_opener(NoRedirect).open(
-                urllib.request.Request(url, data=data, headers=headers), timeout=20) as r:
-            raw = r.read(2_000_001)
-            if len(raw) > 2_000_000:
-                raise DirectoryError("response_too_large")
-            return json.loads(raw)
-    except urllib.error.HTTPError as error:
-        if error.code == 409:
-            return {"duplicate": True}
-        if error.code == 429:
-            raise DirectoryError("rate_limited_stop") from None
-        raise DirectoryError("http_" + str(error.code)) from None
-    except (OSError, ValueError):
-        raise DirectoryError("ambiguous_network_or_response") from None
+    # Writes/submits must not be auto-retried; idempotent lookups/readbacks may retry on transient failures.
+    max_attempts = 1 if body is not None else max(1, attempts)
+    for attempt in range(max_attempts):
+        try:
+            with urllib.request.build_opener(NoRedirect).open(
+                    urllib.request.Request(url, data=data, headers=headers), timeout=20) as r:
+                raw = r.read(2_000_001)
+                if len(raw) > 2_000_000:
+                    raise DirectoryError("response_too_large")
+                return json.loads(raw)
+        except urllib.error.HTTPError as error:
+            if error.code == 409:
+                return {"duplicate": True}
+            if error.code == 429:
+                raise DirectoryError("rate_limited_stop") from None
+            if body is None and 500 <= error.code <= 599 and attempt + 1 < max_attempts:
+                if pause:
+                    pause(min(2 ** (attempt + 1), 4))
+                continue
+            raise DirectoryError("http_" + str(error.code)) from None
+        except (OSError, ValueError):
+            if body is None and attempt + 1 < max_attempts:
+                if pause:
+                    pause(min(2 ** (attempt + 1), 4))
+                continue
+            raise DirectoryError("ambiguous_network_or_response") from None
+    raise DirectoryError("ambiguous_network_or_response")
 
 
 def settings_valid(cfg, now):
