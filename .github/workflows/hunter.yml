@@ -1,4 +1,5 @@
 name: HUNTER # Live execution requested
+# 666 operations: bounded five-minute discovery and reviewed connector execution.
 
 on:
   push:
