@@ -14,6 +14,9 @@ class RetiredPublishingTests(unittest.TestCase):
         self.assertFalse(hasattr(hp, "request_json"))
         self.assertFalse(hasattr(hp, "access_token"))
 
+    def test_retired_publisher_rejects_all_settings(self):
+        self.assertFalse(hp.check_settings({"publishing": {"enabled": True}}, None))
+
 
 if __name__ == "__main__":
     unittest.main()
