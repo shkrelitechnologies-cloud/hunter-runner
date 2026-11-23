@@ -9,7 +9,6 @@ on:
       - hunter_discovery.py
       - hunter_browser_discovery.py
       - hunter_directories.py
-      - hunter_publish.py
       - .github/workflows/hunter.yml
   pull_request:
   schedule:
@@ -48,7 +47,7 @@ jobs:
 
   run:
     needs: test
-    # Bounded queue batches. Reviewed directory adapters are the only publication routes.
+    # No API publisher or site-login flow is enabled here.
     # No secret-bearing job for PRs, forks, or arbitrary pushed branches.
     if: >-
       github.repository == 'shkrelitechnologies-cloud/hunter-runner' &&
@@ -112,8 +111,6 @@ jobs:
       - name: Discover new global product-directory candidates
         run: python app/hunter_browser_discovery.py --out private/inbox/directory-seeds.json --max-pages 24
       - name: Run with private output only
-        env:
-          HUNTER_BLOGGER_OAUTH: ${{ secrets.HUNTER_BLOGGER_OAUTH }}
         shell: bash
         run: |
           set -euo pipefail
@@ -121,8 +118,8 @@ jobs:
           if [ "$HUNTER_INITIALIZE" = "true" ]; then
             args+=(--initialize)
           fi
-          # Keep the saved private config intact. This execution targets only the
-          # three previously successful connectors, with all existing gates intact.
+          # Use a private, temporary configuration that cannot publish via APIs
+          # or start site registration. Preserve the owner's source discovery settings.
           python - <<'PYCONFIG'
           import json, os
           from pathlib import Path
@@ -130,12 +127,11 @@ jobs:
           discovery = cfg.get("discovery", {})
           if not isinstance(discovery, dict) or discovery.get("enabled") is not True:
               raise SystemExit("Read-only discovery is not enabled; refusing to report a healthy run")
-          print("Read-only discovery configuration verified enabled.")
-          # Preserve the private configuration's enabled stages.
-          allowed = {"launchpad", "develif", "curlship"}
-          configured = cfg.get("directories", {}).get("connectors", [])
-          if any(site not in allowed for site in configured):
-              raise SystemExit("Unexpected connector: refusing to expand scope")
+          dirs = cfg.get("directories", {})
+          if isinstance(dirs, dict):
+              dirs["enabled"] = False
+          cfg["safety"] = {"publishing_enabled": False, "human_approval_required": True}
+          cfg["publishing"] = {"enabled": False}
           target = Path(os.environ["RUNNER_TEMP"]) / "hunter-runtime-config.json"
           target.write_text(json.dumps(cfg))
           PYCONFIG
@@ -143,7 +139,7 @@ jobs:
             echo 'HUNTER failed safely. Previous remote state is unchanged; no private log is printed.'
             exit 1
           fi
-          echo 'HUNTER run completed. Results are in the private repository only.'
+          echo 'HUNTER discovery run completed. Publishing is disabled until a permitted browser adapter is configured.'
       - name: Commit only private state, with conflict-safe push
         shell: bash
         run: |
