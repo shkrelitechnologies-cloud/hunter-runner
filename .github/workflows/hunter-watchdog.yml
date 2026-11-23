@@ -6,7 +6,7 @@ on:
       - .github/scripts/hunter_watchdog.py
       - .github/workflows/hunter-watchdog.yml
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "*/5 * * * *"
   workflow_dispatch: {}
 permissions:
   actions: write
