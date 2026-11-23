@@ -59,8 +59,8 @@
       "action": "manual_review",
       "allowed_jobs": [],
       "id": "unknown",
-      "last_seen": "2026-11-23T22:25:18+00:00",
-      "observations": 7,
+      "last_seen": "2026-11-23T22:26:56+00:00",
+      "observations": 8,
       "signatures": [],
       "title": "Unclassified failure",
       "verification": "Record the diagnosis. Add a recipe only after a fix is tested and verified."
