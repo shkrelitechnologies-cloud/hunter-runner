@@ -1,8 +1,8 @@
 """Retired publisher compatibility module.
 
 HUNTER no longer publishes through an API. This module performs no network
-requests and reads no credentials. A future browser adapter must be separately
-implemented for destinations whose current rules expressly permit submissions.
+requests and reads no credentials. Browser publishing remains disabled until a
+destination-specific browser adapter has documented permission and verification.
 """
 
 
@@ -11,10 +11,10 @@ class PublishError(Exception):
 
 
 def check_settings(cfg, now):
-    """Keep legacy configurations from failing while never enabling a write."""
-    return True
+    """Reject retired publisher settings so callers cannot mistake them for enabled."""
+    return False
 
 
 def run_publisher(con, cfg, now, **kwargs):
-    """Explicitly report that no approved browser publisher is configured."""
+    """Report that no explicitly approved browser publisher is configured."""
     return {"status": "disabled_no_approved_browser_adapter", "published": 0}
